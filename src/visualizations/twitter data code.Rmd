@@ -1,0 +1,113 @@
+---
+title: "R Notebook"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(tm)
+library(wordcloud)
+library(dplyr)
+library(tidytext)
+library(ggplot2)
+library(ggthemes)
+library(plotrix)
+library(tidyr)
+
+measles.all <- readRDS("/Users/Jessica/Desktop/measles.all.RDS")
+antivax.all <- readRDS("/Users/Jessica/Desktop/antivax.all.RDS")
+provax.all <- readRDS("/Users/Jessica/Desktop/provax.all.RDS")
+measles.ny.all <- readRDS("/Users/Jessica/Desktop/measles.ny.all.RDS")
+
+colnames(measles.all)[colnames(measles.all)=="status_id"] <- "doc_id"
+colnames(antivax.all)[colnames(antivax.all)=="status_id"] <- "doc_id"
+colnames(provax.all)[colnames(provax.all)=="status_id"] <- "doc_id"
+colnames(measles.ny.all)[colnames(measles.ny.all)=="status_id"] <- "doc_id"
+
+measles.ny.all <- measles.ny.all %>% select(doc_id, text)
+df_source1 <- DataframeSource(measles.ny.all)
+df_corpus1 <- VCorpus(df_source1)
+removeNumPunct <- function(x){gsub("[^[:alpha:][:space:]]*", "", x)}
+clean_corpus <- function(corpus){
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, content_transformer(tolower))
+  corpus <- tm_map(corpus, removeWords, c(stopwords("en")))  
+  corpus <- tm_map(corpus, removeNumbers)
+  corpus <- tm_map(corpus, content_transformer(removeNumPunct))
+  corpus <- tm_map(corpus, stripWhitespace)
+  return(corpus)
+}
+corpus_clean1 <- clean_corpus(df_corpus1)
+
+antivax.text <- antivax.all$text
+provax.text <- provax.all$text
+
+antivax.text <- paste(unlist(antivax.text), collapse =" ")
+provax.text <- paste(unlist(provax.text), collapse =" ")
+
+antivax.text.df <- as.data.frame(antivax.text)
+provax.text.df <- as.data.frame(provax.text)
+antivax.text.df$doc_id <- "Anti-vax"
+provax.text.df$doc_id <- "Pro-vax"
+names(antivax.text.df)[names(antivax.text.df) == "antivax.text"] <- "text"
+names(provax.text.df)[names(provax.text.df) == "provax.text"] <- "text"
+all.df <- rbind(antivax.text.df, provax.text.df)
+all.df <- all.df[, c(2,1)]
+all.df <- DataframeSource(all.df)
+df_corpus2 <- VCorpus(all.df)
+
+corpus_clean2 <- clean_corpus(df_corpus2)
+
+corpus_tdm1 <- TermDocumentMatrix(corpus_clean1)
+matrix1 <- as.matrix(corpus_tdm1)
+
+sort <- sort(rowSums(matrix1), decreasing=TRUE)
+sort.df <- data.frame(word = names(sort), freq=sort)
+
+tidy1 <- tidy(corpus_tdm1)
+head(tidy1)
+tidy1 %>%     group_by(term) %>%
+                summarise(n = sum(count)) %>%
+                top_n(n = 15, wt = n)  %>%
+                ungroup() %>%
+                mutate(term = reorder(term, n)) %>%
+ggplot(aes(term, n)) + geom_bar(stat = "identity", fill="#93252D") + coord_flip()  + theme_classic() + labs(title="Most Frequent Terms in NY #measles Tweets",  x="Term", y = "Count")
+
+## New York only "#measles" tweets 
+wordcloud(words = sort.df$word, freq=sort.df$freq, min.freq=2,
+          max.words = 100, random.order = FALSE,
+          colors=brewer.pal(8, "Set1"), scale=c(3.5,0.25))
+
+corpus_tdm2 <- TermDocumentMatrix(corpus_clean2)
+matrix2 <- as.matrix(corpus_tdm2)
+
+## All US provax and antivax tweets 
+comparison.cloud(matrix2, colors = brewer.pal(8, "Set1"), 
+                 scale=c(3.5,0.25), title.size= 1, 
+                 max.words = 150)
+commonality.cloud(matrix2, colors = brewer.pal(8, "Set1"), 
+                  scale=c(3.5,0.25), title.size= 1, 
+                 max.words = 150)
+
+
+common_words <- subset(matrix2, matrix2[, 1] > 0 & matrix2[, 2] > 0)
+difference <- abs(common_words[, 1] - common_words[, 2])
+common_words <- cbind(common_words, difference)
+common_words <- common_words[order(common_words[, 3], decreasing = TRUE), ]
+top25_df <- data.frame(x = common_words[1:25, 1], 
+                       y = common_words[1:25, 2], 
+                       labels = rownames(common_words[1:25, ]))
+
+pyramid.plot(top25_df$x, top25_df$y, 
+                  labels = top25_df$labels, 
+             gap = 2500, 
+             top.labels = c("Anti-vax", " ", "Pro-vax"), 
+             main = "Words in Common", 
+             laxlab = NULL, 
+             raxlab = NULL, 
+             unit = NULL, 
+             labelcex=0.5)
+```
+
+

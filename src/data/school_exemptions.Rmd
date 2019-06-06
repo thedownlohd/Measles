@@ -1,0 +1,54 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyr)
+library(ggmap)
+library(reshape2)
+```
+```{r}
+
+register_google(key = "AIzaSyBoPdfRuFAfE_BkfUEJeZXJ4JDs5LdQUYA", write = TRUE)
+
+```
+
+```{r}
+
+risky <- readRDS("risky.rds")
+risky18 <- risky %>% filter(year == 2018) %>% arrange(desc(Percent.Religious.Exemptions))
+risky18$Location <- as.character(risky18$Location)
+
+
+test <- risky18$Location %>% 
+  strsplit("\n")
+
+
+test$id <- rownames(test) 
+test <- melt(test)
+test
+
+test = test[seq(3, nrow(test), 3), ]
+
+risky18$L1 <- seq.int(nrow(risky18))
+
+
+
+
+
+
+merged <- merge(test, risky18, by = "L1") %>% 
+  select(value, School.Name, Percent.Religious.Exemptions, Percent.Medical.Exemptions, Percent.Immunized.Measles, year)
+merged
+
+saveRDS(merged, "school_exemptions.rds")
+
+
+```
+

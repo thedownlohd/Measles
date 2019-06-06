@@ -1,0 +1,38 @@
+---
+title: "History of Measles Code"
+author: "Sanjna Shenoy"
+date: "5/4/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+```
+
+# Data 
+```{r}
+df <- read.csv("/Users/sanjnashenoy/Github/Group_A_Health/measles_cases_USA_by_state_1928_to_2002.csv")
+```
+
+## National Graphs
+```{r}
+total_counts_usa <- df %>% group_by(year, disease) %>% summarize(total_counts = sum(cases))
+```
+
+```{r}
+ggplot(total_counts_usa, aes(x=year, y = total_counts, group=disease, color= disease)) + geom_line()+xlab("Year") + xlim(c(1920, 2005)) + ylim(c(0, 850000)) +ggtitle(c("MMR Incidences - United States: 1928 - 2002")) + theme_few() +labs(color = "Disease") + scale_y_discrete("Case Counts", c(50000, 100000, 150000, 200000, 250000)) + scale_color_fivethirtyeight() + geom_vline(xintercept = 1938, linetype = "dotted") + geom_vline(xintercept = 1963, linetype = "dotted") + geom_vline(xintercept=1971, linetype = "dotted") + geom_text(aes(x=1938, y =600000, label="\nWW2 Immigrant Influx"), colour="black", text=element_text(family= "Times", size=8), angle=90) + geom_text(aes(x=1963, y =500000, label="\nMeasles Vaccine Developed"), colour="black", text=element_text(family= "Times", size=8), angle = 90) + geom_text(aes(x=1971, y =400000, label="\nMMR Vaccine Developed"), colour="black", text=element_text(family= "Times", size=8), angle = 90) + geom_vline(xintercept = 2000, linetype = "dotted") + geom_text(aes(x=2000, y =400000, label="\nMeasles Declared Eradicated"), angle = 90, colour="black", text=element_text(family= "Times", size=8))
+```
+
+```{r}
+total_counts_ny <- df %>% filter(state_name=="NEW YORK") %>% group_by(disease, year) %>% summarize(total_counts = sum(cases))
+```
+
+```{r}
+ggplot(total_counts_ny, aes(x=year, y = total_counts, group=disease, color= disease)) + geom_line()+xlab("Year") + xlim(c(1920, 2005)) + ylim(c(0, 125000)) +ggtitle(c("MMR Incidences - New York: 1928 - 2002")) + theme_few() +labs(color = "Disease") + scale_y_discrete("Case Counts", c(50000, 100000)) + scale_color_fivethirtyeight() + geom_vline(xintercept = 2000, linetype = "dotted") + geom_text(aes(x=2000, y =50000, label="\nMeasles Declared Eradicated"), angle = 90, colour="black", text=element_text(family= "Times", size=8))
+```

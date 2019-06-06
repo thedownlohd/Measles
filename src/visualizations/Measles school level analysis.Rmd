@@ -1,0 +1,315 @@
+---
+title: "Measles - New York School Immunization Survey Analysis"
+author: "Sanjna Shenoy"
+date: "5/3/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+library(stringr)
+library(dplyr)
+library(choroplethr)
+library(choroplethrMaps)
+library(leaflet)
+library(ggmap)
+library(ggplot2)
+library(readr)
+library(RColorBrewer)
+library(tm)
+library(wordcloud)
+library(ggthemes)
+library(reshape2)
+```
+
+## Data Cleaning and Transformation
+
+This section examines immunization surveys collected at the school level in New York State, beginning with the 2012-2013 school year. 
+
+First, we examine the trends in exemption rates over time and look at immunization rates at the County level.
+
+```{r}
+df <- read.csv("/Users/sanjnashenoy/Github/Group_A_Health/School_Immunization_Survey__Beginning_2012-13_School_Year.csv")
+```
+
+```{r, message=FALSE}
+df$year <- substr(df$Report.Period, 6, 9)
+df$County <- tolower(df$County)
+df <- df %>% 
+  select(School.ID, Type, School.Name, Percent.Medical.Exemptions, Percent.Religious.Exemptions, Percent.Immunized.Measles, Street, City, County, Zip.Code, Location, year)
+```
+
+```{r}
+df$lat <- as.character(df$Location) %>% strsplit("\n") %>% lapply(., "[", 3) %>% unlist() %>% gsub("[()]", "", .) %>% strsplit(., ",") %>% lapply(., "[", 1) %>% unlist() %>% as.character() %>% as.numeric()
+df$lon <- as.character(df$Location) %>% strsplit("\n") %>% lapply(., "[", 3) %>% unlist() %>% gsub("[()]", "", .) %>% strsplit(., ",") %>% lapply(., "[", 2) %>% unlist() %>% as.numeric() 
+```
+
+## Identifying Trends over time
+
+```{r}
+exemp_rates <- df %>% group_by(year) %>% summarize (avg_med_rate = mean(Percent.Medical.Exemptions))
+exemp_rates_rel <- df %>% group_by(year) %>% summarize(avg_rel_rate = mean(Percent.Religious.Exemptions))
+exemp_rates <- left_join(exemp_rates, exemp_rates_rel)
+colnames(exemp_rates) <- c("Year", "Average Medical Exemption Rate", "Average Religious Exemption Rate")
+```
+
+```{r}
+meltdf <- melt(exemp_rates, id= "Year")
+```
+
+```{r}
+ggplot(meltdf, aes(x = Year, y = value, group = variable, color = variable)) + geom_line() + labs("Legend") + ggtitle("Average Exemption Rates 2013-2018") + theme_few() + ylab("Rate") + theme(legend.position="bottom", legend.title = element_blank())
+```
+
+Over time we see that while the average medical exemption rate has remained consistent and normal, the average religious exmeption rate is increasing over time.
+
+## Average Immunization Rates by Counties
+
+```{r}
+risky <- df %>% filter(year == 2018) %>% filter(Percent.Immunized.Measles < 94) %>% arrange(Percent.Immunized.Measles)
+```
+
+
+```{r, echo=FALSE}
+county_rates <- df %>% filter(year == 2018) %>% group_by(County) %>% summarize(avg_immun = mean(Percent.Immunized.Measles))
+colnames(county_rates) <- c("region", "value")
+data(county.regions)
+counties <- county.regions %>% filter(state.name == "new york") %>% select(county.name, county.fips.character)
+colnames(counties) <- c("region", "fips")
+county_rates <- left_join(county_rates, counties) %>% select(fips, value)
+colnames(county_rates) <- c("region","value")
+```
+
+```{r}
+county_rates$region <- as.numeric(county_rates$region)
+choroplethr::county_choropleth(county_rates, title = "Average Immunization Rates by County",num_colors = 7, state_zoom = "new york", legend = "Immunization Rates")
+```
+
+We identify the counties that have immunization rates less than 94. There are 15 counties. The bar chart shows a list of counties that are at risk of measles contagion.
+
+```{r}
+county_rates <- df %>% filter(year == 2018) %>% group_by(County) %>% summarize(avg_immun = mean(Percent.Immunized.Measles)) %>% filter(avg_immun < 94)
+```
+
+```{r}
+ggplot(county_rates, aes(x=reorder(County, -avg_immun), y = avg_immun, fill = County)) + geom_bar(stat="identity") + coord_flip() + theme_few() + ggtitle("Average Immunization Rates by New York Counties (2018)") + theme(legend.position = "none") + xlab("County") + ylab("Average Immunization Rate") 
+```
+
+The top 5 counties are Montgomery,Yates, Allegany, Cattaraugus, and Seneca.
+
+```{r}
+pal = colorFactor("Set1", domain = risky$Type)
+color_type = pal(risky$Type)
+content <- paste("School Name:",risky$School.Name,"<br/>",
+                 "% Immunized:",risky$Percent.Immunized.Measles,"<br/>",
+                 "% Religious Exemption",risky$Percent.Religious.Exemptions,"<br/>",
+                 "% Medical Exemption",risky$Percent.Medical.Exemptions,"<br/>")
+```
+
+The interactive map below shows the schools in New York that have immunization rates below the ideal threshold needed to achieve herd immunity. We have identified 574 schools as being risky
+
+```{r}
+m <- leaflet(risky) %>% 
+  addTiles() %>%
+  addCircles(lat= ~lat, lng= ~lon, color = color_type, popup = content) %>% addLegend(pal = pal, values = ~risky$Type, title = "School Type")
+m  
+```
+
+## Type of Risky Schools
+```{r}
+ggplot(risky, aes(x=Type, fill = Type)) + geom_histogram(stat="count") + ggtitle("Type of Schools")
+```
+
+The most common type of school in the risky dataset is private schools. 
+
+## Text Analysis of Risky Schools
+
+```{r}
+schools <- unique(risky$School.Name)
+txt <- schools
+frequentSchool = c("school","preschool","academy","elementary","sch", "institute", "center","elem")
+
+myCorpus<-VCorpus(VectorSource(txt))
+myCorpusClean <- myCorpus %>% 
+  tm_map(content_transformer(tolower)) %>% 
+  tm_map(content_transformer(removeNumbers)) %>% 
+  tm_map(content_transformer(removePunctuation)) %>%
+  tm_map(content_transformer(removeWords),frequentSchool) %>%
+  tm_map(content_transformer(removeWords),tidytext::stop_words$word)
+
+tdm_1<- TermDocumentMatrix(myCorpusClean, control = list(minWordLength = 3))
+m_tdm_1 <-as.matrix(tdm_1)
+word.freq.1<-sort(rowSums(m_tdm_1), decreasing=T)
+```
+
+```{r}
+head(word.freq.1, 5L)
+```
+
+Christian is the most frequent term.
+
+```{r}
+set.seed(12345)
+wordcloud(words=names(word.freq.1),freq = word.freq.1,random.order=F,colors=brewer.pal(9,"Set1"),max.words=100)
+title(paste0('Most frequent 1-grams in school names'),col.main='black',cex.main=2)
+```
+
+The most frequent words associated with schools that have low immunization rates is words like "christian", "yeshiva", and "montessori". This refers to relgious institituions and alternatuve learning institutions.
+
+## Text Analysis of Riskiest Schools 
+
+```{r}
+riskiest <- risky %>% filter(Percent.Immunized.Measles == 0)
+dim(riskiest)
+```
+
+There are 91 schools where no child is vaccinated against measles.
+
+```{r,message=FALSE, error=FALSE}
+schools <- unique(riskiest$School.Name)
+txt <- schools
+myCorpus<-VCorpus(VectorSource(txt))
+
+myCorpusClean <- myCorpus %>% 
+  tm_map(content_transformer(tolower)) %>% 
+  tm_map(content_transformer(removeNumbers)) %>% 
+  tm_map(content_transformer(removePunctuation)) %>%
+  tm_map(content_transformer(removeWords),frequentSchool) %>%
+  tm_map(content_transformer(removeWords),tidytext::stop_words$word)
+
+tdm_1<- TermDocumentMatrix(myCorpusClean, control = list(minWordLength = 3))
+m_tdm_1 <-as.matrix(tdm_1)
+word.freq.1<-sort(rowSums(m_tdm_1), decreasing=T)
+
+BigramTokenizer <- function(x) unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
+tdm_2<- TermDocumentMatrix(myCorpusClean, control = list(tokenize = BigramTokenizer))
+m_tdm_2 <-as.matrix(tdm_2)
+word.freq.2<-sort(rowSums(m_tdm_2), decreasing=T)
+
+set.seed(314)
+wordcloud(words=names(word.freq.2),freq = word.freq.2,random.order=F,colors=brewer.pal(9,"Set1"),max.words=100)
+title(paste0('Most frequent 2-grams in school names'),col.main='black',cex.main=2)
+```
+
+Again, we see references to religious instituions like "muhammed", "menonite", and "amish".
+
+## Focusing on New York City
+
+```{r}
+df_nyc <- df %>% filter(year ==2018) %>% filter(City %in% c("BROOKLYN", "BRONX", "QUEENS", "STATEN ISLAND", "MANHATTAN", "NEW YORK")) %>% filter(Percent.Immunized.Measles < 94) %>% arrange(Percent.Immunized.Measles)
+```
+
+```{r}
+pal = colorFactor("Set1", domain = df_nyc$Type)
+color_type = pal(df_nyc$Type)
+content <- paste("School Name:",df_nyc$School.Name,"<br/>",
+                 "% Immunized:",df_nyc$Percent.Immunized.Measles,"<br/>",
+                 "% Religious Exemption",df_nyc$Percent.Religious.Exemptions,"<br/>",
+                 "% Medical Exemption",df_nyc$Percent.Medical.Exemptions,"<br/>")
+```
+
+```{r}
+m2 <- leaflet(df_nyc) %>% addTiles() %>% addCircles(lng = ~lon, lat = ~lat, color = color_type, popup = content) %>% addLegend(pal = pal, values = ~df_nyc$Type, title = "School Type")
+m2
+```
+
+There are 109 schools in New York City risky category. Every school below the 94% immunization threshold in NYC is a private school. Let's look at them on a static plot.
+
+```{r, echo=FALSE}
+#REMOVING API KEY 
+
+```
+
+```{r, nessage=FALSE}
+newyork <- get_map("new york city", zoom=11)
+ggmap(newyork) + geom_point(data=df_nyc, aes(x=lon, y=lat))
+```
+Let's look at the medical exemption rate and the religious exemption rates
+
+```{r}
+df_nyc$City <- factor(as.character(df_nyc$City))
+```
+
+```{r}
+ggplot(df_nyc, aes(x = City, y = Percent.Medical.Exemptions)) +
+        geom_boxplot() + theme_few() + xlab("Percent Medical Exemptions") + ylab("City") + ggtitle("Medical Exemption Rates by City")
+```
+
+```{r}
+ggplot(df_nyc, aes(x = City, y = Percent.Religious.Exemptions)) +
+        geom_boxplot() + theme_few() + xlab("Percent Religious Exemptions") + ylab("City") + ggtitle("Religious Exemption Rates by City")
+```
+
+## Examining 2019 Measles Mandate
+
+Under the NYC Measles Mandate, four zipcodes will be affected: 11205, 11206, 11211 and 11249.
+
+```{r}
+mandate <- df %>% filter(year ==2018) %>% filter(Zip.Code %in% c(11205, 11206, 11211, 11249))
+dim(mandate)
+```
+
+This covers only 44 schools, whereas we have identifed 109 schools in New York City that are at risk. Let's perform a text analysis on the school names to see what patterns emerge.
+
+```{r}
+schools <- unique(mandate$School.Name)
+txt <- schools
+myCorpus<-VCorpus(VectorSource(txt))
+
+myCorpusClean <- myCorpus %>% 
+  tm_map(content_transformer(tolower)) %>% 
+  tm_map(content_transformer(removeNumbers)) %>% 
+  tm_map(content_transformer(removePunctuation)) %>%
+ tm_map(content_transformer(removeWords),frequentSchool) %>%
+  tm_map(content_transformer(removeWords),tidytext::stop_words$word)
+
+tdm_1<- TermDocumentMatrix(myCorpusClean, control = list(minWordLength = 1))
+m_tdm_1 <-as.matrix(tdm_1)
+word.freq.1<-sort(rowSums(m_tdm_1), decreasing=T)
+set.seed(12345)
+wordcloud(words=names(word.freq.1),freq = word.freq.1,random.order=F,colors=brewer.pal(9,"Set1"),max.words=100)
+title(paste0('Most frequent 1-grams in school names'),col.main='black',cex.main=2)
+```
+
+This is very interesting because we previously saw that christian was the most frequent word in the risky dataset. 
+
+```{r}
+ggplot(mandate, aes(x= reorder(School.Name, Percent.Immunized.Measles), y = Percent.Immunized.Measles, fill= School.Name)) + geom_bar(stat="identity") + coord_flip() + xlab("School Name") + ylab("Immunization Rates") + ggtitle("Measles Immunization Rates for Measles Mandate Schools")+ theme_few() + theme(legend.position = "none")
+```
+
+The barchart shows that many of the identified schools are well above the threshold for herd immunity.
+
+```{r}
+above_thresh <- filter(mandate, Percent.Immunized.Measles >= 94)
+dim(above_thresh)
+```
+
+In fact, more than half of the schools in the zipcodes identified by the NYC Health Department have vaccination rates that are adequate for herd immunity.
+
+## Using Data to improve NYC Policy
+
+Let's look at average measles immunization rates by zipcodes. We will simply look at the top 5.
+
+```{r}
+zip_nyc <- df %>% filter(year == 2018) %>% filter(City %in% c("BROOKLYN", "BRONX", "QUEENS", "STATEN ISLAND", "MANHATTAN", "NEW YORK")) %>% group_by(Zip.Code) %>% summarize(Avg.Immun.Rate = mean(Percent.Immunized.Measles)) %>% arrange(Avg.Immun.Rate) %>% head(5L)
+zip_nyc
+```
+
+Only 1 zipcode in the list above, (i.e. 11221), was correctly identified by the NYC Health Department. The zipcode 10026,with an average immunization rate of 47.6% across schools was not identified as a risky region.
+
+Let's look at which schools fall in the zip codes we identified above
+
+```{r}
+schools <- df %>% filter(year==2018) %>% filter(Zip.Code %in% zip_nyc$Zip.Code)
+```
+
+```{r}
+as.character(schools$School.Name)
+```
+
+We argue that it mandatory measles vaccination policy must address the 14 schools above in the top 5 zipcodes we identified.
+
+

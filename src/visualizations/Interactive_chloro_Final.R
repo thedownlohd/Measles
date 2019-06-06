@@ -1,0 +1,41 @@
+county <- map_data("county")
+county_measles <- read.xlsx("county_level_measles.xlsx")
+colnames(county_measles)[colnames(county_measles)=="state"] <- "region"
+colnames(county_measles)[colnames(county_measles)=="county"] <- "subregion"
+county_measles$region <- tolower(county_measles$region)
+county_measles$subregion <- tolower(county_measles$subregion)
+
+map.df <- merge(county, county_measles, by=c("region", "subregion"), all.x=T)
+
+map.df <- map.df[order(map.df$order),]
+
+t <- list(
+  family = "times new roman",
+  size = 14,
+  color = 'black')
+
+map.df$subregion <- toTitleCase(map.df$subregion)
+map.df$my_text = paste("County: ", map.df$subregion, 
+                       "<br>Number of Neasles Cases: " , map.df$cases,
+                       "<br>Unemployment: ", map.df$unemployment.rate,
+                       "<br>Poverty Rate: ", map.df$percent.poverty)
+
+
+plot1 <- ggplot(map.df, aes(x=long,y=lat,group=group, fill = map.df$cases, label = my_text))+
+  geom_polygon()+
+  #   scale_color_gradient(low = "gray", high = "blue") +
+  #scale_fill_gradientn(colours=rev(heat.colors(10)),na.value="grey90") + 
+  scale_fill_gradient(low="#C4888C", high = "#93252D", na.value="#D6DFDF")+
+  labs(title = "Measles Cases by County", fill = NULL) + 
+  theme_few() + 
+  coord_fixed() +
+  coord_map() +
+  geom_path() +
+  theme(axis.ticks = element_blank()) +
+  xlab(NULL) + ylab(NULL) + 
+  theme(legend.position = "right", 
+        panel.background = element_rect(fill = NA, colour = "#cccccc"),
+        axis.text.x = element_blank(), axis.text.y = element_blank())
+
+plot1 <- ggplotly(plot1, tooltip = c("label")) %>% 
+  layout(font = t)
