@@ -15,7 +15,7 @@ library(reshape2)
 ```
 ```{r}
 
-register_google(key = "AIzaSyBoPdfRuFAfE_BkfUEJeZXJ4JDs5LdQUYA", write = TRUE)
+register_google(key = "ENTER_KEY", write = TRUE)
 
 ```
 
